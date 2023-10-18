@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/require"
-	"github.com/valyala/fasthttp"
 )
 
 type docTest struct {
@@ -288,14 +288,17 @@ var (
 	}
 )
 
-var customClient = NewFastHTTPCustomClient(ClientConfig{
+var restyClient = func() *resty.Client {
+	c := resty.New()
+	c.SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true})
+	return c
+}()
+var customClient = NewRestyCustomClient(ClientConfig{
 	Host:   getenv("MEILISEARCH_URL", "http://localhost:7700"),
 	APIKey: masterKey,
 },
-	&fasthttp.Client{
-		TLSConfig: &tls.Config{InsecureSkipVerify: true},
-		Name:      "custom-client",
-	})
+	restyClient,
+)
 
 var timeoutClient = NewClient(ClientConfig{
 	Host:    getenv("MEILISEARCH_URL", "http://localhost:7700"),

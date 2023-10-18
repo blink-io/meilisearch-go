@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/valyala/fasthttp"
 )
+
+var defaultHttpClient = resty.New()
 
 func TestClient_Version(t *testing.T) {
 	tests := []struct {
@@ -496,9 +498,7 @@ func TestClient_Health(t *testing.T) {
 					Host:   "http://wrongurl:1234",
 					APIKey: masterKey,
 				},
-				httpClient: &fasthttp.Client{
-					Name: "meilisearch-client",
-				},
+				httpClient: defaultHttpClient,
 			},
 			wantErr: true,
 		},
@@ -539,9 +539,7 @@ func TestClient_IsHealthy(t *testing.T) {
 					Host:   "http://wrongurl:1234",
 					APIKey: masterKey,
 				},
-				httpClient: &fasthttp.Client{
-					Name: "meilisearch-client",
-				},
+				httpClient: defaultHttpClient,
 			},
 			want: false,
 		},

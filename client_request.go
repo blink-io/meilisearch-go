@@ -1,14 +1,13 @@
 package meilisearch
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 
-	"github.com/valyala/fasthttp"
-
-	"encoding/json"
+	"github.com/go-resty/resty/v2"
 )
 
 const (
@@ -44,9 +43,7 @@ func (c *Client) executeRequest(req internalRequest) error {
 		StatusCodeExpected: req.acceptedStatusCodes,
 	}
 
-	response := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseResponse(response)
-	err := c.sendRequest(&req, internalError, response)
+	response, err := c.sendRequest(&req, internalError)
 	if err != nil {
 		return err
 	}
@@ -64,9 +61,9 @@ func (c *Client) executeRequest(req internalRequest) error {
 	return nil
 }
 
-func (c *Client) sendRequest(req *internalRequest, internalError *Error, response *fasthttp.Response) error {
+func (c *Client) sendRequest(req *internalRequest, internalError *Error) (*resty.Response, error) {
 	var (
-		request *fasthttp.Request
+		request *resty.Request
 
 		err error
 	)
@@ -74,7 +71,7 @@ func (c *Client) sendRequest(req *internalRequest, internalError *Error, respons
 	// Setup URL
 	requestURL, err := url.Parse(c.config.Host + req.endpoint)
 	if err != nil {
-		return fmt.Errorf("unable to parse url: %w", err)
+		return nil, fmt.Errorf("unable to parse url: %w", err)
 	}
 
 	// Build query parameters
@@ -87,18 +84,18 @@ func (c *Client) sendRequest(req *internalRequest, internalError *Error, respons
 		requestURL.RawQuery = query.Encode()
 	}
 
-	request = fasthttp.AcquireRequest()
-	defer fasthttp.ReleaseRequest(request)
+	if c.config.Timeout != 0 {
+		c.httpClient.SetTimeout(c.config.Timeout)
+	}
 
-	request.SetRequestURI(requestURL.String())
-	request.Header.SetMethod(req.method)
+	request = c.httpClient.R()
 
 	if req.withRequest != nil {
 		if req.method == http.MethodGet || req.method == http.MethodHead {
-			return fmt.Errorf("sendRequest: request body is not expected for GET and HEAD requests")
+			return nil, fmt.Errorf("sendRequest: request body is not expected for GET and HEAD requests")
 		}
 		if req.contentType == "" {
-			return fmt.Errorf("sendRequest: request body without Content-Type is not allowed")
+			return nil, fmt.Errorf("sendRequest: request body without Content-Type is not allowed")
 		}
 
 		rawRequest := req.withRequest
@@ -108,7 +105,11 @@ func (c *Client) sendRequest(req *internalRequest, internalError *Error, respons
 		} else if reader, ok := rawRequest.(io.Reader); ok {
 			// If the request body is an io.Reader then stream it directly until io.EOF
 			// NOTE: Avoid using this, due to problems with streamed request bodies
-			request.SetBodyStream(reader, -1)
+			data, err := io.ReadAll(reader)
+			if err != nil {
+				return nil, fmt.Errorf("sendRequest: unable to read data from io.Reader")
+			}
+			request.SetBody(data)
 		} else {
 			// Otherwise convert it to JSON
 			var (
@@ -122,7 +123,7 @@ func (c *Client) sendRequest(req *internalRequest, internalError *Error, respons
 			}
 			internalError.RequestToString = string(data)
 			if err != nil {
-				return internalError.WithErrCode(ErrCodeMarshalRequest, err)
+				return nil, internalError.WithErrCode(ErrCodeMarshalRequest, err)
 			}
 			request.SetBody(data)
 		}
@@ -137,27 +138,31 @@ func (c *Client) sendRequest(req *internalRequest, internalError *Error, respons
 	}
 
 	request.Header.Set("User-Agent", GetQualifiedVersion())
-
 	// request is sent
-	if c.config.Timeout != 0 {
-		err = c.httpClient.DoTimeout(request, response, c.config.Timeout)
-	} else {
-		err = c.httpClient.Do(request, response)
-	}
+
+	response, err := request.Execute(req.method, requestURL.String())
 
 	// request execution timeout
-	if err == fasthttp.ErrTimeout {
-		return internalError.WithErrCode(MeilisearchTimeoutError, err)
+	if err != nil && isTimeoutErr(err) {
+		return nil, internalError.WithErrCode(MeilisearchTimeoutError, err)
 	}
 	// request execution fail
+
 	if err != nil {
-		return internalError.WithErrCode(MeilisearchCommunicationError, err)
+		return nil, internalError.WithErrCode(MeilisearchCommunicationError, err)
 	}
 
-	return nil
+	return response, nil
 }
 
-func (c *Client) handleStatusCode(req *internalRequest, response *fasthttp.Response, internalError *Error) error {
+func isTimeoutErr(err error) bool {
+	if urlErr, ok := err.(*url.Error); ok {
+		return ok && urlErr.Timeout()
+	}
+	return false
+}
+
+func (c *Client) handleStatusCode(req *internalRequest, response *resty.Response, internalError *Error) error {
 	if req.acceptedStatusCodes != nil {
 
 		// A successful status code is required so check if the response status code is in the
@@ -181,7 +186,7 @@ func (c *Client) handleStatusCode(req *internalRequest, response *fasthttp.Respo
 	return nil
 }
 
-func (c *Client) handleResponse(req *internalRequest, response *fasthttp.Response, internalError *Error) (err error) {
+func (c *Client) handleResponse(req *internalRequest, response *resty.Response, internalError *Error) (err error) {
 	if req.withResponse != nil {
 
 		// A json response is mandatory, so the response interface{} need to be unmarshal from the response payload.

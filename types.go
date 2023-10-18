@@ -3,8 +3,8 @@ package meilisearch
 import (
 	"time"
 
-	"github.com/golang-jwt/jwt/v4"
-	"github.com/valyala/fasthttp"
+	"github.com/go-resty/resty/v2"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 //
@@ -14,7 +14,7 @@ import (
 // Client is a structure that give you the power for interacting with an high-level api with Meilisearch.
 type Client struct {
 	config     ClientConfig
-	httpClient *fasthttp.Client
+	httpClient *resty.Client
 }
 
 // Index is the type that represent an index in Meilisearch

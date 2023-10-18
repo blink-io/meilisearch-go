@@ -9,8 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v4"
-	"github.com/valyala/fasthttp"
+	"github.com/go-resty/resty/v2"
+	"github.com/golang-jwt/jwt/v5"
+)
+
+const (
+	UserAgent = "meilisearch-client"
 )
 
 // ClientConfig configure the Client
@@ -64,8 +68,9 @@ type ClientInterface interface {
 
 var _ ClientInterface = &Client{}
 
-// NewFastHTTPCustomClient creates Meilisearch with custom fasthttp.Client
-func NewFastHTTPCustomClient(config ClientConfig, client *fasthttp.Client) *Client {
+// NewRestyCustomClient creates Meilisearch with custom resty.Client
+func NewRestyCustomClient(config ClientConfig, client *resty.Client) *Client {
+	//
 	c := &Client{
 		config:     config,
 		httpClient: client,
@@ -73,13 +78,9 @@ func NewFastHTTPCustomClient(config ClientConfig, client *fasthttp.Client) *Clie
 	return c
 }
 
-// NewClient creates Meilisearch with default fasthttp.Client
+// NewClient creates Meilisearch with default resty.Client
 func NewClient(config ClientConfig) *Client {
-	client := &fasthttp.Client{
-		Name: "meilisearch-client",
-		// Reuse the most recently-used idle connection.
-		ConnPoolStrategy: fasthttp.LIFO,
-	}
+	client := resty.New()
 	c := &Client{
 		config:     config,
 		httpClient: client,
